@@ -184,3 +184,49 @@ class AudioProcessor:
 
         if progress_callback:
             progress_callback(1.0)
+
+    def convert_format(
+        self,
+        input_path: str,
+        output_path: str,
+        target_format: str,
+        progress_callback: Optional[Callable[[float], None]] = None,
+    ) -> None:
+        """
+        Converts audio format.
+        Args:
+            input_path: Source file.
+            output_path: Destination file.
+            target_format: Target extension (e.g., 'wav').
+            progress_callback: Progress reporter.
+        """
+        if not os.path.exists(input_path):
+            raise FileNotFoundError(f"Input file not found: {input_path}")
+
+        if progress_callback:
+            progress_callback(0.1)
+
+        try:
+            audio = AudioSegment.from_file(input_path)
+            if progress_callback:
+                progress_callback(0.5)
+
+            # Map extensions to correct FFmpeg muxer/codec
+            ffmpeg_format = target_format
+            codec = None
+
+            if target_format == "m4a":
+                ffmpeg_format = "mp4"
+                codec = "aac"
+            elif target_format == "aac":
+                ffmpeg_format = "adts"
+                codec = "aac"
+
+            # Use original bitrate if possible, or let pydub handle valid defaults
+            audio.export(output_path, format=ffmpeg_format, codec=codec)
+
+        except Exception as e:
+            raise RuntimeError(f"Conversion failed: {e}")
+
+        if progress_callback:
+            progress_callback(1.0)
