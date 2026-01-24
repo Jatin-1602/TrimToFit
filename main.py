@@ -1,4 +1,4 @@
-from ui import AudioTrimmerApp
+from trimtofit.gui.app import AudioTrimmerApp
 
 if __name__ == "__main__":
     app = AudioTrimmerApp()
