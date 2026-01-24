@@ -224,9 +224,31 @@ class TrimView(ctk.CTkFrame):
         # Add initial row
         self.add_range_row()
 
+        # --- Processing Mode ---
+        self.mode_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.mode_frame.grid(row=3, column=0, padx=20, pady=(5, 5), sticky="ew")
+
+        self.mode_var = ctk.StringVar(value="remove")
+
+        self.remove_radio = ctk.CTkRadioButton(
+            self.mode_frame,
+            text="Remove Selected Ranges",
+            variable=self.mode_var,
+            value="remove",
+        )
+        self.remove_radio.pack(side="left", padx=20)
+
+        self.keep_radio = ctk.CTkRadioButton(
+            self.mode_frame,
+            text="Keep Only Selected Ranges",
+            variable=self.mode_var,
+            value="keep",
+        )
+        self.keep_radio.pack(side="left", padx=20)
+
         # --- Actions & Progress ---
         self.action_frame = ctk.CTkFrame(self)
-        self.action_frame.grid(row=3, column=0, padx=20, pady=10, sticky="ew")
+        self.action_frame.grid(row=4, column=0, padx=20, pady=10, sticky="ew")
         self.action_frame.grid_columnconfigure((0, 1), weight=1)
 
         self.preview_btn = ctk.CTkButton(
@@ -248,11 +270,11 @@ class TrimView(ctk.CTkFrame):
         self.save_btn.grid(row=0, column=1, padx=10, pady=10, sticky="ew")
 
         self.progress_bar = ctk.CTkProgressBar(self)
-        self.progress_bar.grid(row=4, column=0, padx=20, pady=(10, 5), sticky="ew")
+        self.progress_bar.grid(row=5, column=0, padx=20, pady=(10, 5), sticky="ew")
         self.progress_bar.set(0)
 
         self.status_label = ctk.CTkLabel(self, text="Ready", text_color="gray")
-        self.status_label.grid(row=5, column=0, padx=20, pady=(0, 5))
+        self.status_label.grid(row=6, column=0, padx=20, pady=(0, 5))
 
     def select_file(self):
         filetypes = (
@@ -334,7 +356,11 @@ class TrimView(ctk.CTkFrame):
             text_color="#3B8ED0",
         )
 
-        thread = threading.Thread(target=self.run_processing, args=(ranges, is_preview))
+        keep_selected = self.mode_var.get() == "keep"
+
+        thread = threading.Thread(
+            target=self.run_processing, args=(ranges, is_preview, keep_selected)
+        )
         thread.start()
 
     def set_ui_state(self, state):
@@ -343,7 +369,7 @@ class TrimView(ctk.CTkFrame):
         self.select_btn.configure(state=state)
         self.add_btn.configure(state=state)
 
-    def run_processing(self, ranges, is_preview):
+    def run_processing(self, ranges, is_preview, keep_selected):
         try:
             if is_preview:
                 base, ext = os.path.splitext(self.selected_file_path)
@@ -359,6 +385,7 @@ class TrimView(ctk.CTkFrame):
                 self.selected_file_path,
                 output_path,
                 ranges,
+                keep_selected_ranges=keep_selected,
                 progress_callback=self.update_progress,
             )
             self.after(

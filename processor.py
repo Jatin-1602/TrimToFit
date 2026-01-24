@@ -59,6 +59,7 @@ class AudioProcessor:
         input_path: str,
         output_path: str,
         remove_ranges_ms: List[Tuple[int, int]],
+        keep_selected_ranges: bool = False,
         progress_callback: Optional[Callable[[float], None]] = None,
     ) -> None:
         """
@@ -68,6 +69,7 @@ class AudioProcessor:
             input_path: Path to source.
             output_path: Path to dest.
             remove_ranges_ms: List of tuples [(start_ms, end_ms), ...].
+            keep_selected_ranges: If True, keeps ONLY the selected ranges. If False, removes them.
             progress_callback: Progress reporter.
         """
         if not os.path.exists(input_path):
@@ -87,7 +89,13 @@ class AudioProcessor:
         total_duration = len(audio)
 
         # Ranges are already in milliseconds
-        keep_ranges = self.invert_ranges(remove_ranges_ms, total_duration)
+        if keep_selected_ranges:
+            # If keeping selected, use them directly (sorted)
+            remove_ranges_ms.sort(key=lambda x: x[0])
+            keep_ranges = remove_ranges_ms
+        else:
+            # If removing selected, calculate the inverse
+            keep_ranges = self.invert_ranges(remove_ranges_ms, total_duration)
 
         final_audio = AudioSegment.empty()
 
