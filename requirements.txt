@@ -1,2 +1,3 @@
 customtkinter
 pydub
+# System requirement: ffmpeg must be installed and in PATH

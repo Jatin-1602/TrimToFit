@@ -1,17 +1,18 @@
 import customtkinter as ctk
-import threading
 import os
+import threading
 import tempfile
-import sys
-import subprocess
 from tkinter import filedialog, messagebox
-from processor import AudioProcessor
+from typing import List, Dict, Any, Optional
 
-ctk.set_appearance_mode("Dark")
-ctk.set_default_color_theme("blue")
+from trimtofit.gui.widgets import TimeInputFrame
+from trimtofit.core.audio_processor import AudioProcessor
 
 
-def open_file_safe(path):
+def open_utils_safe(path: str):
+    import sys
+    import subprocess
+
     try:
         if sys.platform == "win32":
             os.startfile(path)
@@ -23,147 +24,37 @@ def open_file_safe(path):
         print(f"Error opening file: {e}")
 
 
-class Spinbox(ctk.CTkFrame):
+class BaseView(ctk.CTkFrame):
     """
-    A custom Spinbox widget (Entry + Up/Down buttons) to handle time input.
-    """
-
-    def __init__(
-        self, *args, width=100, height=32, min_val=0, max_val=100, step_size=1, **kwargs
-    ):
-        super().__init__(*args, width=width, height=height, **kwargs)
-        self.min_val = min_val
-        self.max_val = max_val
-        self.step_size = step_size
-
-        self.configure(fg_color=("gray78", "gray28"))
-
-        self.grid_columnconfigure(0, weight=1)  # Entry
-        self.grid_columnconfigure(1, weight=0)  # Button column
-
-        self.grid_rowconfigure(0, weight=1)
-
-        # Entry
-        self.entry = ctk.CTkEntry(
-            self, width=width - 30, height=height - 6, border_width=0, justify="center"
-        )
-        self.entry.grid(row=0, column=0, padx=(3, 3), pady=3, sticky="ew")
-        self.entry.insert(0, f"{min_val:02d}")
-        self.entry.bind("<FocusOut>", self.validate)
-
-        # Buttons Column
-        self.btn_frame = ctk.CTkFrame(self, fg_color="transparent", width=25)
-        self.btn_frame.grid(row=0, column=1, padx=(0, 3), pady=3, sticky="ns")
-
-        btn_height = (height - 8) // 2
-
-        self.add_button = ctk.CTkButton(
-            self.btn_frame,
-            text="^",
-            width=25,
-            height=btn_height,
-            command=self.add,
-            fg_color="gray40",
-            hover_color="gray30",
-        )
-        self.add_button.pack(side="top", pady=(0, 1))
-
-        self.subtract_button = ctk.CTkButton(
-            self.btn_frame,
-            text="v",
-            width=25,
-            height=btn_height,
-            command=self.subtract,
-            fg_color="gray40",
-            hover_color="gray30",
-        )
-        self.subtract_button.pack(side="bottom", pady=(1, 0))
-
-    def add(self):
-        try:
-            val = int(self.entry.get()) + self.step_size
-            if val > self.max_val:
-                val = self.min_val  # Loop around
-            self.set_val(val)
-        except ValueError:
-            self.set_val(self.min_val)
-
-    def subtract(self):
-        try:
-            val = int(self.entry.get()) - self.step_size
-            if val < self.min_val:
-                val = self.max_val  # Loop around
-            self.set_val(val)
-        except ValueError:
-            self.set_val(self.min_val)
-
-    def set_val(self, val):
-        self.entry.delete(0, "end")
-        self.entry.insert(0, f"{val:02d}")
-
-    def validate(self, event=None):
-        try:
-            val = int(self.entry.get())
-            val = max(self.min_val, min(val, self.max_val))
-            self.set_val(val)
-        except ValueError:
-            self.set_val(self.min_val)
-
-    def get(self) -> int:
-        try:
-            return int(self.entry.get())
-        except ValueError:
-            return self.min_val
-
-
-class TimeInputFrame(ctk.CTkFrame):
-    """
-    A helper class that provides a HH:MM:SS input group using Spinboxes.
+    Base class for application views to share common functionality.
     """
 
-    def __init__(self, master, **kwargs):
-        super().__init__(master, **kwargs)
-
-        self.configure(fg_color="transparent")
-
-        # Layout
-        self.grid_rowconfigure(0, weight=1)
-        self.grid_columnconfigure((0, 2, 4), weight=0)  # Spinboxes
-        self.grid_columnconfigure((1, 3), weight=0)  # Separators
-
-        # Hours (0-24)
-        self.hh_spin = Spinbox(self, width=80, min_val=0, max_val=24)
-        self.hh_spin.grid(row=0, column=0, padx=2)
-
-        # Sep
-        ctk.CTkLabel(self, text=":", font=("Roboto", 16, "bold")).grid(row=0, column=1)
-
-        # Minutes (0-59)
-        self.mm_spin = Spinbox(self, width=80, min_val=0, max_val=59)
-        self.mm_spin.grid(row=0, column=2, padx=2)
-
-        # Sep
-        ctk.CTkLabel(self, text=":", font=("Roboto", 16, "bold")).grid(row=0, column=3)
-
-        # Seconds (0-59)
-        self.ss_spin = Spinbox(self, width=80, min_val=0, max_val=59)
-        self.ss_spin.grid(row=0, column=4, padx=2)
-
-    def get_milliseconds(self) -> int:
-        h = self.hh_spin.get()
-        m = self.mm_spin.get()
-        s = self.ss_spin.get()
-        return ((h * 3600) + (m * 60) + s) * 1000
-
-
-class TrimView(ctk.CTkFrame):
-    def __init__(self, master, processor, **kwargs):
+    def __init__(self, master, processor: AudioProcessor, **kwargs):
         super().__init__(master, **kwargs)
         self.processor = processor
-        self.selected_file_path = None
-        self.range_rows = []
+        self.selected_file_path: Optional[str] = None
 
         self.grid_columnconfigure(0, weight=1)
+
+    def select_file_dialog(self):
+        filetypes = (
+            ("Audio files", "*.mp3 *.wav *.ogg *.flac *.m4a"),
+            ("All files", "*.*"),
+        )
+        return filedialog.askopenfilename(initialdir="/", filetypes=filetypes)
+
+    def processing_finished(
+        self, success: bool, message_or_path: str, is_preview: bool = False
+    ):
+        pass  # To be overridden
+
+
+class TrimView(BaseView):
+    def __init__(self, master, processor: AudioProcessor, **kwargs):
+        super().__init__(master, processor, **kwargs)
+        self.range_rows: List[Dict[str, Any]] = []
+
+        # We need row 2 to expand (range list)
         self.grid_rowconfigure(2, weight=1)
 
         self.setup_ui()
@@ -277,11 +168,7 @@ class TrimView(ctk.CTkFrame):
         self.status_label.grid(row=6, column=0, padx=20, pady=(0, 5))
 
     def select_file(self):
-        filetypes = (
-            ("Audio files", "*.mp3 *.wav *.ogg *.flac *.m4a"),
-            ("All files", "*.*"),
-        )
-        filename = filedialog.askopenfilename(initialdir="/", filetypes=filetypes)
+        filename = self.select_file_dialog()
         if filename:
             self.selected_file_path = filename
             self.file_label.configure(
@@ -381,7 +268,7 @@ class TrimView(ctk.CTkFrame):
                 base, ext = os.path.splitext(self.selected_file_path)
                 output_path = f"{base}_trimmed{ext}"
 
-            self.processor.process_audio(
+            final_path = self.processor.process_audio(
                 self.selected_file_path,
                 output_path,
                 ranges,
@@ -389,7 +276,7 @@ class TrimView(ctk.CTkFrame):
                 progress_callback=self.update_progress,
             )
             self.after(
-                0, lambda: self.processing_finished(True, output_path, is_preview)
+                0, lambda: self.processing_finished(True, final_path, is_preview)
             )
 
         except Exception as e:
@@ -404,10 +291,10 @@ class TrimView(ctk.CTkFrame):
             self.progress_bar.set(1)
             if is_preview:
                 self.status_label.configure(text="Preview Opened", text_color="green")
-                open_file_safe(message_or_path)
+                open_utils_safe(message_or_path)
             else:
                 self.status_label.configure(
-                    text="Saved Successfully!", text_color="green"
+                    text=f"Saved: {message_or_path}", text_color="green"
                 )
                 messagebox.showinfo("Success", f"Audio saved:\n{message_or_path}")
         else:
@@ -416,14 +303,10 @@ class TrimView(ctk.CTkFrame):
             messagebox.showerror("Error", f"An error occurred:\n{message_or_path}")
 
 
-class SpeedView(ctk.CTkFrame):
-    def __init__(self, master, processor, **kwargs):
-        super().__init__(master, **kwargs)
-        self.processor = processor
-        self.selected_file_path = None
+class SpeedView(BaseView):
+    def __init__(self, master, processor: AudioProcessor, **kwargs):
+        super().__init__(master, processor, **kwargs)
         self.speed_var = ctk.DoubleVar(value=1.0)
-
-        self.grid_columnconfigure(0, weight=1)
         self.setup_ui()
 
     def setup_ui(self):
@@ -479,11 +362,7 @@ class SpeedView(ctk.CTkFrame):
         self.status_label.grid(row=4, column=0, padx=20, pady=5)
 
     def select_file(self):
-        filetypes = (
-            ("Audio files", "*.mp3 *.wav *.ogg *.flac *.m4a"),
-            ("All files", "*.*"),
-        )
-        filename = filedialog.askopenfilename(initialdir="/", filetypes=filetypes)
+        filename = self.select_file_dialog()
         if filename:
             self.selected_file_path = filename
             self.file_label.configure(
@@ -510,32 +389,30 @@ class SpeedView(ctk.CTkFrame):
             base, ext = os.path.splitext(self.selected_file_path)
             output_path = f"{base}_speed_{self.speed_var.get():.2f}x{ext}"
 
-            self.processor.change_speed(
+            final_path = self.processor.change_speed(
                 self.selected_file_path, output_path, float(self.speed_var.get())
             )
 
-            self.after(0, lambda: self.processing_finished(True, output_path))
+            self.after(0, lambda: self.processing_finished(True, final_path))
         except Exception as e:
             self.after(0, lambda: self.processing_finished(False, str(e)))
 
-    def processing_finished(self, success, message_or_path):
+    def processing_finished(self, success, message_or_path, is_preview=False):
         self.process_btn.configure(state="normal")
         if success:
-            self.status_label.configure(text="Saved Successfully!", text_color="green")
+            self.status_label.configure(
+                text=f"Saved: {message_or_path}", text_color="green"
+            )
             messagebox.showinfo("Success", f"Audio saved:\n{message_or_path}")
         else:
             self.status_label.configure(text="Error", text_color="red")
             messagebox.showerror("Error", f"An error occurred:\n{message_or_path}")
 
 
-class FormatView(ctk.CTkFrame):
-    def __init__(self, master, processor, **kwargs):
-        super().__init__(master, **kwargs)
-        self.processor = processor
-        self.selected_file_path = None
+class FormatView(BaseView):
+    def __init__(self, master, processor: AudioProcessor, **kwargs):
+        super().__init__(master, processor, **kwargs)
         self.available_formats = ["mp3", "wav", "flac", "ogg", "m4a", "aac"]
-
-        self.grid_columnconfigure(0, weight=1)
         self.setup_ui()
 
     def setup_ui(self):
@@ -584,11 +461,7 @@ class FormatView(ctk.CTkFrame):
         self.status_label.grid(row=4, column=0, padx=20, pady=5)
 
     def select_file(self):
-        filetypes = (
-            ("Audio files", "*.mp3 *.wav *.ogg *.flac *.m4a"),
-            ("All files", "*.*"),
-        )
-        filename = filedialog.askopenfilename(initialdir="/", filetypes=filetypes)
+        filename = self.select_file_dialog()
         if filename:
             self.selected_file_path = filename
             self.file_label.configure(
@@ -613,125 +486,21 @@ class FormatView(ctk.CTkFrame):
             base, _ = os.path.splitext(self.selected_file_path)
             output_path = f"{base}_converted.{target_fmt}"
 
-            self.processor.convert_format(
+            final_path = self.processor.convert_format(
                 self.selected_file_path, output_path, target_fmt
             )
 
-            self.after(0, lambda: self.processing_finished(True, output_path))
+            self.after(0, lambda: self.processing_finished(True, final_path))
         except Exception as e:
             self.after(0, lambda: self.processing_finished(False, str(e)))
 
-    def processing_finished(self, success, message_or_path):
+    def processing_finished(self, success, message_or_path, is_preview=False):
         self.process_btn.configure(state="normal")
         if success:
-            self.status_label.configure(text="Saved Successfully!", text_color="green")
+            self.status_label.configure(
+                text=f"Saved: {message_or_path}", text_color="green"
+            )
             messagebox.showinfo("Success", f"Audio saved:\n{message_or_path}")
         else:
             self.status_label.configure(text="Error", text_color="red")
             messagebox.showerror("Error", f"An error occurred:\n{message_or_path}")
-
-
-class AudioTrimmerApp(ctk.CTk):
-    def __init__(self):
-        super().__init__()
-
-        self.title("TrimToFit - Audio Suite")
-        self.geometry("1000x700")
-
-        self.processor = AudioProcessor()
-
-        # Grid layout: 1 row, 2 cols (Sidebar, Content)
-        self.grid_rowconfigure(0, weight=1)
-        self.grid_columnconfigure(1, weight=1)
-
-        self.create_sidebar()
-        self.create_content_area()
-
-        # Select first view by default
-        self.select_trim_view()
-
-    def create_sidebar(self):
-        self.sidebar_frame = ctk.CTkFrame(self, width=200, corner_radius=0)
-        self.sidebar_frame.grid(row=0, column=0, sticky="nsew")
-        self.sidebar_frame.grid_rowconfigure(4, weight=1)
-
-        self.logo_label = ctk.CTkLabel(
-            self.sidebar_frame, text="TrimToFit", font=("Roboto", 20, "bold")
-        )
-        self.logo_label.grid(row=0, column=0, padx=20, pady=(20, 10))
-
-        self.trim_btn = ctk.CTkButton(
-            self.sidebar_frame,
-            text="✂️ Audio Trimmer",
-            command=self.select_trim_view,
-            fg_color="transparent",
-            text_color=("gray10", "gray90"),
-            hover_color=("gray70", "gray30"),
-            anchor="w",
-        )
-        self.trim_btn.grid(row=1, column=0, padx=20, pady=10, sticky="ew")
-
-        self.speed_btn = ctk.CTkButton(
-            self.sidebar_frame,
-            text="⏩ Speed Control",
-            command=self.select_speed_view,
-            fg_color="transparent",
-            text_color=("gray10", "gray90"),
-            hover_color=("gray70", "gray30"),
-            anchor="w",
-        )
-        self.speed_btn.grid(row=2, column=0, padx=20, pady=10, sticky="ew")
-
-        self.format_btn = ctk.CTkButton(
-            self.sidebar_frame,
-            text="🔄 Format Converter",
-            command=self.select_format_view,
-            fg_color="transparent",
-            text_color=("gray10", "gray90"),
-            hover_color=("gray70", "gray30"),
-            anchor="w",
-        )
-        self.format_btn.grid(row=3, column=0, padx=20, pady=10, sticky="ew")
-
-    def create_content_area(self):
-        self.content_frame = ctk.CTkFrame(self, corner_radius=0, fg_color="transparent")
-        self.content_frame.grid(row=0, column=1, sticky="nsew")
-        self.content_frame.grid_rowconfigure(0, weight=1)
-        self.content_frame.grid_columnconfigure(0, weight=1)
-
-        # Instantiate views
-        self.trim_view = TrimView(
-            self.content_frame, self.processor, fg_color="transparent"
-        )
-        self.speed_view = SpeedView(
-            self.content_frame, self.processor, fg_color="transparent"
-        )
-        self.format_view = FormatView(
-            self.content_frame, self.processor, fg_color="transparent"
-        )
-
-    def select_trim_view(self):
-        self.set_button_active(self.trim_btn)
-        self.speed_view.grid_forget()
-        self.format_view.grid_forget()
-        self.trim_view.grid(row=0, column=0, sticky="nsew")
-
-    def select_speed_view(self):
-        self.set_button_active(self.speed_btn)
-        self.trim_view.grid_forget()
-        self.format_view.grid_forget()
-        self.speed_view.grid(row=0, column=0, sticky="nsew")
-
-    def select_format_view(self):
-        self.set_button_active(self.format_btn)
-        self.trim_view.grid_forget()
-        self.speed_view.grid_forget()
-        self.format_view.grid(row=0, column=0, sticky="nsew")
-
-    def set_button_active(self, btn):
-        # Reset all
-        self.trim_btn.configure(fg_color="transparent")
-        self.speed_btn.configure(fg_color="transparent")
-        self.format_btn.configure(fg_color="transparent")
-        # Set active
-        btn.configure(fg_color=("gray75", "gray25"))

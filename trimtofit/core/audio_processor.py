@@ -2,34 +2,18 @@ import os
 import sys
 import subprocess
 from typing import List, Tuple, Optional, Callable
-
-# --- Monkey Patch: Suppress FFmpeg Console Window (Windows) ---
-# This prevents the black cmd window from popping up when running as a GUI/EXE.
-if sys.platform == "win32":
-    startupinfo = subprocess.STARTUPINFO()
-    startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-    startupinfo.wShowWindow = subprocess.SW_HIDE
-
-    _original_popen = subprocess.Popen
-
-    def _silent_popen(*args, **kwargs):
-        if "startupinfo" not in kwargs:
-            kwargs["startupinfo"] = startupinfo
-        # Also ensure creationflags are set just in case (CREATE_NO_WINDOW = 0x08000000)
-        if "creationflags" not in kwargs:
-            kwargs["creationflags"] = 0x08000000
-        return _original_popen(*args, **kwargs)
-
-    subprocess.Popen = _silent_popen
-# -------------------------------------------------------------
-
 from pydub import AudioSegment
 from pydub.utils import mediainfo
+from trimtofit.utils.system_utils import apply_windows_ffmpeg_patch
+from trimtofit.utils.file_utils import get_unique_filepath
+
+# Apply the patch immediately upon import if on Windows
+apply_windows_ffmpeg_patch()
 
 
 class AudioProcessor:
     """
-    Handles audio processing logic using pydub.
+    Handles audio processing logic using pydub and ffmpeg.
     """
 
     def invert_ranges(
@@ -37,6 +21,13 @@ class AudioProcessor:
     ) -> List[Tuple[int, int]]:
         """
         Calculates the 'keep' ranges based on the 'remove' ranges and total duration.
+
+        Args:
+            remove_ranges: List of (start_ms, end_ms) tuples to remove.
+            total_duration_ms: Total duration of the audio in milliseconds.
+
+        Returns:
+            List of (start_ms, end_ms) tuples to keep.
         """
         keep_ranges = []
         current_time = 0
@@ -61,16 +52,23 @@ class AudioProcessor:
         remove_ranges_ms: List[Tuple[int, int]],
         keep_selected_ranges: bool = False,
         progress_callback: Optional[Callable[[float], None]] = None,
-    ) -> None:
+    ) -> str:
         """
         Loads audio, removes specified ranges, and exports the result.
 
         Args:
-            input_path: Path to source.
-            output_path: Path to dest.
+            input_path: Path to source audio file.
+            output_path: Proposed path to destination audio file.
             remove_ranges_ms: List of tuples [(start_ms, end_ms), ...].
             keep_selected_ranges: If True, keeps ONLY the selected ranges. If False, removes them.
-            progress_callback: Progress reporter.
+            progress_callback: Optional function that accepts a float (0.0 to 1.0) for progress reporting.
+
+        Returns:
+            str: The actual output path used (handled for uniqueness).
+
+        Raises:
+            FileNotFoundError: If input file does not exist.
+            RuntimeError: If audio loading or processing fails.
         """
         if not os.path.exists(input_path):
             raise FileNotFoundError(f"Input file not found: {input_path}")
@@ -81,7 +79,7 @@ class AudioProcessor:
         try:
             audio = AudioSegment.from_file(input_path)
         except Exception as e:
-            raise RuntimeError(f"Failed to load audio. {e}")
+            raise RuntimeError(f"Failed to load audio: {e}")
 
         if progress_callback:
             progress_callback(0.3)
@@ -99,10 +97,7 @@ class AudioProcessor:
 
         final_audio = AudioSegment.empty()
 
-        if not keep_ranges:
-            # Result is empty if everything removed
-            pass
-        else:
+        if keep_ranges:
             count = len(keep_ranges)
             for i, (start, end) in enumerate(keep_ranges):
                 segment = audio[start:end]
@@ -123,15 +118,28 @@ class AudioProcessor:
             info = mediainfo(input_path)
             if "bit_rate" in info:
                 bitrate = info["bit_rate"]
-        except:
+        except Exception:
             pass
 
-        final_audio.export(
-            output_path, format=output_path.split(".")[-1], bitrate=bitrate
-        )
+        # Ensure directory exists for output
+        output_dir = os.path.dirname(output_path)
+        if output_dir and not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+
+        # Get unique file path
+        actual_output_path = get_unique_filepath(output_path)
+
+        try:
+            final_audio.export(
+                actual_output_path, format=actual_output_path.split(".")[-1], bitrate=bitrate
+            )
+        except Exception as e:
+            raise RuntimeError(f"Failed to export audio: {e}")
 
         if progress_callback:
             progress_callback(1.0)
+
+        return actual_output_path
 
     def change_speed(
         self,
@@ -139,15 +147,23 @@ class AudioProcessor:
         output_path: str,
         speed_factor: float,
         progress_callback: Optional[Callable[[float], None]] = None,
-    ) -> None:
+    ) -> str:
         """
         Changes the speed of the audio using FFmpeg's atempo filter to preserve pitch.
 
         Args:
-            input_path: Path to source.
-            output_path: Path to dest.
+            input_path: Path to source audio file.
+            output_path: Proposed path to destination audio file.
             speed_factor: Float between 0.5 and 2.0.
-            progress_callback: Progress reporter (simple start/end updates).
+            progress_callback: Optional progress reporter.
+
+        Returns:
+            str: The actual output path used.
+
+        Raises:
+            ValueError: If speed_factor is out of range.
+            FileNotFoundError: If input file does not exist.
+            RuntimeError: If FFmpeg fails.
         """
         if not (0.5 <= speed_factor <= 2.0):
             raise ValueError("Speed factor must be between 0.5 and 2.0")
@@ -158,11 +174,13 @@ class AudioProcessor:
         if progress_callback:
             progress_callback(0.1)
 
+        # Get unique file path
+        actual_output_path = get_unique_filepath(output_path)
+
         # Construct FFmpeg command
         # ffmpeg -i input.mp3 -filter:a "atempo=1.5" -vn output.mp3
         # -vn disables video if present (audio only)
         # -y overwrites output
-
         cmd = [
             "ffmpeg",
             "-y",
@@ -171,16 +189,21 @@ class AudioProcessor:
             "-filter:a",
             f"atempo={speed_factor}",
             "-vn",
-            output_path,
+            actual_output_path,
         ]
 
         if progress_callback:
             progress_callback(0.3)
 
         try:
-            # We use the silent startup info from the class level patch if on windows,
-            # or just run it via subprocess.run
+            # We use startupinfo hidden via the patch applied at module level implicitly for Popen
+            # but for subprocess.run we might need to be explicit if the patch doesn't cover run's internals heavily enough on some python versions
+            # However, since we monkeypatched Popen, run() calls Popen, so it should be fine.
+            # To be safe and explicit for win32:
             if sys.platform == "win32":
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                startupinfo.wShowWindow = subprocess.SW_HIDE
                 subprocess.run(
                     cmd, check=True, startupinfo=startupinfo, creationflags=0x08000000
                 )
@@ -193,48 +216,51 @@ class AudioProcessor:
         if progress_callback:
             progress_callback(1.0)
 
+        return actual_output_path
+
     def convert_format(
         self,
         input_path: str,
         output_path: str,
         target_format: str,
         progress_callback: Optional[Callable[[float], None]] = None,
-    ) -> None:
+    ) -> str:
         """
-        Converts audio format.
+        Converts audio file format using pydub.
+
         Args:
-            input_path: Source file.
-            output_path: Destination file.
-            target_format: Target extension (e.g., 'wav').
-            progress_callback: Progress reporter.
+            input_path: Path to source audio file.
+            output_path: Proposed path to destination audio file.
+            target_format: Target format string (e.g., 'mp3', 'wav').
+            progress_callback: Optional progress reporter.
+
+        Returns:
+            str: The actual output path used.
         """
         if not os.path.exists(input_path):
             raise FileNotFoundError(f"Input file not found: {input_path}")
 
         if progress_callback:
             progress_callback(0.1)
+        
+        # Get unique file path
+        actual_output_path = get_unique_filepath(output_path)
 
         try:
             audio = AudioSegment.from_file(input_path)
             if progress_callback:
                 progress_callback(0.5)
 
-            # Map extensions to correct FFmpeg muxer/codec
-            ffmpeg_format = target_format
-            codec = None
+            output_dir = os.path.dirname(actual_output_path)
+            if output_dir and not os.path.exists(output_dir):
+                os.makedirs(output_dir)
 
-            if target_format == "m4a":
-                ffmpeg_format = "mp4"
-                codec = "aac"
-            elif target_format == "aac":
-                ffmpeg_format = "adts"
-                codec = "aac"
+            audio.export(actual_output_path, format=target_format)
 
-            # Use original bitrate if possible, or let pydub handle valid defaults
-            audio.export(output_path, format=ffmpeg_format, codec=codec)
+            if progress_callback:
+                progress_callback(1.0)
+            
+            return actual_output_path
 
         except Exception as e:
-            raise RuntimeError(f"Conversion failed: {e}")
-
-        if progress_callback:
-            progress_callback(1.0)
+            raise RuntimeError(f"Failed to convert format: {e}")
