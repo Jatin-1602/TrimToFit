@@ -2,7 +2,7 @@ import customtkinter as ctk
 from tkinter import messagebox
 
 from trimtofit.core.audio_processor import AudioProcessor
-from trimtofit.gui.views import TrimView, SpeedView, FormatView
+from trimtofit.gui.views import TrimView, SpeedView, FormatView, MergerView
 from trimtofit.utils.system_utils import check_ffmpeg_availability
 
 ctk.set_appearance_mode("Dark")
@@ -39,7 +39,7 @@ class AudioTrimmerApp(ctk.CTk):
     def create_sidebar(self):
         self.sidebar_frame = ctk.CTkFrame(self, width=200, corner_radius=0)
         self.sidebar_frame.grid(row=0, column=0, sticky="nsew")
-        self.sidebar_frame.grid_rowconfigure(4, weight=1)
+        self.sidebar_frame.grid_rowconfigure(5, weight=1)
 
         self.logo_label = ctk.CTkLabel(
             self.sidebar_frame, text="TrimToFit", font=("Roboto", 20, "bold")
@@ -79,6 +79,17 @@ class AudioTrimmerApp(ctk.CTk):
         )
         self.format_btn.grid(row=3, column=0, padx=20, pady=10, sticky="ew")
 
+        self.merger_btn = ctk.CTkButton(
+            self.sidebar_frame,
+            text="➕ Audio Merger",
+            command=self.select_merger_view,
+            fg_color="transparent",
+            text_color=("gray10", "gray90"),
+            hover_color=("gray70", "gray30"),
+            anchor="w",
+        )
+        self.merger_btn.grid(row=4, column=0, padx=20, pady=10, sticky="ew")
+
     def create_content_area(self):
         self.content_frame = ctk.CTkFrame(self, corner_radius=0, fg_color="transparent")
         self.content_frame.grid(row=0, column=1, sticky="nsew")
@@ -95,29 +106,43 @@ class AudioTrimmerApp(ctk.CTk):
         self.format_view = FormatView(
             self.content_frame, self.processor, fg_color="transparent"
         )
+        self.merger_view = MergerView(
+            self.content_frame, self.processor, fg_color="transparent"
+        )
 
     def select_trim_view(self):
         self.set_button_active(self.trim_btn)
         self.speed_view.grid_forget()
         self.format_view.grid_forget()
+        self.merger_view.grid_forget()
         self.trim_view.grid(row=0, column=0, sticky="nsew")
 
     def select_speed_view(self):
         self.set_button_active(self.speed_btn)
         self.trim_view.grid_forget()
         self.format_view.grid_forget()
+        self.merger_view.grid_forget()
         self.speed_view.grid(row=0, column=0, sticky="nsew")
 
     def select_format_view(self):
         self.set_button_active(self.format_btn)
         self.trim_view.grid_forget()
         self.speed_view.grid_forget()
+        self.merger_view.grid_forget()
         self.format_view.grid(row=0, column=0, sticky="nsew")
+
+    def select_merger_view(self):
+        self.set_button_active(self.merger_btn)
+        self.trim_view.grid_forget()
+        self.speed_view.grid_forget()
+        self.format_view.grid_forget()
+        self.merger_view.grid(row=0, column=0, sticky="nsew")
 
     def set_button_active(self, btn):
         # Reset all
         self.trim_btn.configure(fg_color="transparent")
         self.speed_btn.configure(fg_color="transparent")
         self.format_btn.configure(fg_color="transparent")
+        self.merger_btn.configure(fg_color="transparent")
         # Set active
         btn.configure(fg_color=("gray75", "gray25"))

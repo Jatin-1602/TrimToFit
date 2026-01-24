@@ -131,7 +131,9 @@ class AudioProcessor:
 
         try:
             final_audio.export(
-                actual_output_path, format=actual_output_path.split(".")[-1], bitrate=bitrate
+                actual_output_path,
+                format=actual_output_path.split(".")[-1],
+                bitrate=bitrate,
             )
         except Exception as e:
             raise RuntimeError(f"Failed to export audio: {e}")
@@ -242,7 +244,7 @@ class AudioProcessor:
 
         if progress_callback:
             progress_callback(0.1)
-        
+
         # Get unique file path
         actual_output_path = get_unique_filepath(output_path)
 
@@ -259,8 +261,80 @@ class AudioProcessor:
 
             if progress_callback:
                 progress_callback(1.0)
-            
+
             return actual_output_path
 
         except Exception as e:
             raise RuntimeError(f"Failed to convert format: {e}")
+
+    def merge_audio_files(
+        self,
+        input_paths: List[str],
+        output_path: str,
+        progress_callback: Optional[Callable[[float], None]] = None,
+    ) -> str:
+        """
+        Merges multiple audio files into a single MP3 file.
+        Resamples all files to match the frame rate of the first file.
+
+        Args:
+            input_paths: List of paths to source audio files.
+            output_path: Proposed path to destination MP3 file.
+            progress_callback: Optional progress reporter.
+
+        Returns:
+            str: The actual output path used.
+        """
+        if not input_paths:
+            raise ValueError("No input files provided")
+
+        if progress_callback:
+            progress_callback(0.0)
+
+        merged_audio = AudioSegment.empty()
+        base_frame_rate = None
+
+        count = len(input_paths)
+        for i, path in enumerate(input_paths):
+            if not os.path.exists(path):
+                continue
+
+            try:
+                segment = AudioSegment.from_file(path)
+
+                # Normalize frame rate to the first file's rate
+                if base_frame_rate is None:
+                    base_frame_rate = segment.frame_rate
+                elif segment.frame_rate != base_frame_rate:
+                    segment = segment.set_frame_rate(base_frame_rate)
+
+                merged_audio += segment
+
+                if progress_callback:
+                    # Progress from 0.0 to 0.7 during loading
+                    progress_callback(0.7 * (i + 1) / count)
+
+            except Exception as e:
+                print(f"Skipping file {path} due to error: {e}")
+
+        if progress_callback:
+            progress_callback(0.75)
+
+        # Get unique file path
+        actual_output_path = get_unique_filepath(output_path)
+
+        # Ensure directory exists for output
+        output_dir = os.path.dirname(actual_output_path)
+        if output_dir and not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+
+        try:
+            # Export as MP3 192k
+            merged_audio.export(actual_output_path, format="mp3", bitrate="192k")
+        except Exception as e:
+            raise RuntimeError(f"Failed to export merged audio: {e}")
+
+        if progress_callback:
+            progress_callback(1.0)
+
+        return actual_output_path

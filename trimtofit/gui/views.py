@@ -504,3 +504,151 @@ class FormatView(BaseView):
         else:
             self.status_label.configure(text="Error", text_color="red")
             messagebox.showerror("Error", f"An error occurred:\n{message_or_path}")
+
+
+class MergerView(BaseView):
+    def __init__(self, master, processor: AudioProcessor, **kwargs):
+        super().__init__(master, processor, **kwargs)
+        self.selected_files: List[str] = []
+
+        self.grid_rowconfigure(2, weight=1)  # Listbox expands
+        self.grid_columnconfigure(0, weight=1)
+
+        self.setup_ui()
+
+    def setup_ui(self):
+        # --- Header ---
+        self.header_label = ctk.CTkLabel(
+            self, text="Audio Merger", font=("Roboto", 24, "bold")
+        )
+        self.header_label.grid(row=0, column=0, padx=20, pady=(20, 10), sticky="ew")
+
+        # --- Controls ---
+        self.controls_frame = ctk.CTkFrame(self)
+        self.controls_frame.grid(row=1, column=0, padx=20, pady=10, sticky="ew")
+        self.controls_frame.grid_columnconfigure(1, weight=1)
+
+        self.add_btn = ctk.CTkButton(
+            self.controls_frame, text="Add Files", command=self.add_files
+        )
+        self.add_btn.grid(row=0, column=0, padx=10, pady=10)
+
+        self.clear_btn = ctk.CTkButton(
+            self.controls_frame,
+            text="Clear List",
+            command=self.clear_files,
+            fg_color="firebrick",
+        )
+        self.clear_btn.grid(row=0, column=2, padx=10, pady=10)
+
+        # --- File List ---
+        self.file_list_frame = ctk.CTkScrollableFrame(self, label_text="Selected Files")
+        self.file_list_frame.grid(row=2, column=0, padx=20, pady=10, sticky="nsew")
+
+        # --- Action ---
+        self.merge_btn = ctk.CTkButton(
+            self,
+            text="Merge & Save",
+            command=self.on_process,
+            height=40,
+            font=("Roboto", 14, "bold"),
+        )
+        self.merge_btn.grid(row=3, column=0, padx=20, pady=20, sticky="ew")
+
+        self.status_label = ctk.CTkLabel(self, text="Ready", text_color="gray")
+        self.status_label.grid(row=4, column=0, padx=20, pady=5)
+
+    def add_files(self):
+        filetypes = (
+            ("Audio files", "*.mp3 *.wav *.ogg *.flac *.m4a"),
+            ("All files", "*.*"),
+        )
+        filenames = filedialog.askopenfilenames(initialdir="/", filetypes=filetypes)
+        if filenames:
+            self.selected_files.extend(filenames)
+            self.update_file_list_display()
+            self.status_label.configure(text=f"Added {len(filenames)} files.")
+
+    def clear_files(self):
+        self.selected_files.clear()
+        self.update_file_list_display()
+        self.status_label.configure(text="List cleared.")
+
+    def remove_file(self, index):
+        if 0 <= index < len(self.selected_files):
+            removed = self.selected_files.pop(index)
+            self.update_file_list_display()
+            self.status_label.configure(text=f"Removed: {os.path.basename(removed)}")
+
+    def update_file_list_display(self):
+        # Clear existing widgets
+        for widget in self.file_list_frame.winfo_children():
+            widget.destroy()
+
+        for idx, file_path in enumerate(self.selected_files):
+            # Row container
+            row_frame = ctk.CTkFrame(self.file_list_frame, fg_color="transparent")
+            row_frame.pack(fill="x", pady=2)
+
+            # Label
+            lbl = ctk.CTkLabel(
+                row_frame,
+                text=f"{idx + 1}. {os.path.basename(file_path)}",
+                anchor="w",
+            )
+            lbl.pack(side="left", padx=5, expand=True, fill="x")
+
+            # Delete Button
+            del_btn = ctk.CTkButton(
+                row_frame,
+                text="❌",
+                width=30,
+                height=30,
+                fg_color="transparent",
+                text_color="red",
+                hover_color=("gray90", "gray20"),
+                command=lambda i=idx: self.remove_file(i),
+            )
+            del_btn.pack(side="right", padx=5)
+
+    def on_process(self):
+        if len(self.selected_files) < 2:
+            messagebox.showwarning(
+                "Warning", "Please select at least 2 audio files to merge."
+            )
+            return
+
+        self.merge_btn.configure(state="disabled")
+        self.status_label.configure(text="Merging...", text_color="#3B8ED0")
+
+        thread = threading.Thread(target=self.run_processing)
+        thread.start()
+
+    def run_processing(self):
+        try:
+            # Determine output filename based on the first file
+            first_file = self.selected_files[0]
+            base_dir = os.path.dirname(first_file)
+            output_name = "merged_output.mp3"
+            output_path = os.path.join(base_dir, output_name)
+
+            final_path = self.processor.merge_audio_files(
+                self.selected_files, output_path
+            )
+
+            self.after(0, lambda: self.processing_finished(True, final_path))
+        except Exception as e:
+            self.after(0, lambda: self.processing_finished(False, str(e)))
+
+    def processing_finished(self, success, message_or_path, is_preview=False):
+        self.merge_btn.configure(state="normal")
+        if success:
+            self.status_label.configure(
+                text=f"Saved: {message_or_path}", text_color="green"
+            )
+            messagebox.showinfo(
+                "Success", f"Audio merged and saved:\n{message_or_path}"
+            )
+        else:
+            self.status_label.configure(text="Error", text_color="red")
+            messagebox.showerror("Error", f"An error occurred:\n{message_or_path}")
