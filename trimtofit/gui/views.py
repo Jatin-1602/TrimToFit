@@ -652,3 +652,91 @@ class MergerView(BaseView):
         else:
             self.status_label.configure(text="Error", text_color="red")
             messagebox.showerror("Error", f"An error occurred:\n{message_or_path}")
+
+
+class DownloaderView(BaseView):
+    def __init__(self, master, processor: AudioProcessor, **kwargs):
+        super().__init__(master, processor, **kwargs)
+        self.grid_columnconfigure(0, weight=1)
+        self.setup_ui()
+
+    def setup_ui(self):
+        # Header
+        self.header_label = ctk.CTkLabel(
+            self, text="YouTube to MP3", font=("Roboto", 24, "bold")
+        )
+        self.header_label.grid(row=0, column=0, padx=20, pady=(20, 10), sticky="ew")
+
+        # URL Input
+        self.input_frame = ctk.CTkFrame(self)
+        self.input_frame.grid(row=1, column=0, padx=20, pady=20, sticky="ew")
+        self.input_frame.grid_columnconfigure(1, weight=1)
+
+        ctk.CTkLabel(self.input_frame, text="YouTube URL:").grid(
+            row=0, column=0, padx=10, pady=20
+        )
+
+        self.url_entry = ctk.CTkEntry(
+            self.input_frame, placeholder_text="Paste your link here..."
+        )
+        self.url_entry.grid(row=0, column=1, padx=10, pady=20, sticky="ew")
+
+        # Action
+        self.download_btn = ctk.CTkButton(
+            self,
+            text="Download & Convert to MP3",
+            command=self.on_download,
+            height=40,
+            font=("Roboto", 14, "bold"),
+        )
+        self.download_btn.grid(row=2, column=0, padx=20, pady=10, sticky="ew")
+
+        # Status
+        self.status_label = ctk.CTkLabel(self, text="Ready", text_color="gray")
+        self.status_label.grid(row=3, column=0, padx=20, pady=5)
+
+    def on_download(self):
+        url = self.url_entry.get().strip()
+        if not url:
+            messagebox.showwarning("Warning", "Please enter a valid YouTube URL.")
+            return
+
+        # Let user choose output folder
+        output_folder = filedialog.askdirectory(title="Select Download Folder")
+        if not output_folder:
+            return
+
+        self.download_btn.configure(state="disabled")
+        self.url_entry.configure(state="disabled")
+        self.status_label.configure(text="Initializing...", text_color="#3B8ED0")
+
+        thread = threading.Thread(target=self.run_download, args=(url, output_folder))
+        thread.start()
+
+    def run_download(self, url, output_folder):
+        try:
+
+            def update_progress(msg):
+                self.after(0, lambda: self.status_label.configure(text=msg))
+
+            final_path = self.processor.download_audio_from_youtube(
+                url, output_folder, progress_callback=update_progress
+            )
+            self.after(0, lambda: self.download_finished(True, final_path))
+
+        except Exception as e:
+            # Fix: Must pass parameters to self.after to avoid capturing 'e' which is deleted
+            # or convert to string immediately.
+            msg = str(e)
+            self.after(0, self.download_finished, False, msg)
+
+    def download_finished(self, success, message_or_path):
+        self.download_btn.configure(state="normal")
+        self.url_entry.configure(state="normal")
+
+        if success:
+            self.status_label.configure(text="Download Complete!", text_color="green")
+            messagebox.showinfo("Success", f"MP3 saved to:\n{message_or_path}")
+        else:
+            self.status_label.configure(text="Error", text_color="red")
+            messagebox.showerror("Error", f"Download failed:\n{message_or_path}")

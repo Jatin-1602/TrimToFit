@@ -1,6 +1,7 @@
 import os
 import sys
 import subprocess
+import yt_dlp
 from typing import List, Tuple, Optional, Callable
 from pydub import AudioSegment
 from pydub.utils import mediainfo
@@ -338,3 +339,71 @@ class AudioProcessor:
             progress_callback(1.0)
 
         return actual_output_path
+
+    def download_audio_from_youtube(
+        self,
+        youtube_url: str,
+        output_folder: str,
+        progress_callback: Optional[Callable[[str], None]] = None,
+    ) -> str:
+        """
+        Downloads audio from a YouTube URL and converts it to MP3.
+
+        Args:
+            youtube_url: The YouTube video URL.
+            output_folder: Directory to save the file.
+            progress_callback: Optional callback accepting a status string.
+
+        Returns:
+            str: Path to the downloaded MP3 file.
+        """
+        if not os.path.exists(output_folder):
+            os.makedirs(output_folder)
+
+        def progress_hook(d):
+            if d["status"] == "downloading":
+                p = d.get("_percent_str", "0%").strip()
+                if progress_callback:
+                    progress_callback(f"Downloading {p}...")
+            elif d["status"] == "finished":
+                if progress_callback:
+                    progress_callback("Converting to MP3...")
+
+        ydl_opts = {
+            "format": "bestaudio/best",
+            "postprocessors": [
+                {
+                    "key": "FFmpegExtractAudio",
+                    "preferredcodec": "mp3",
+                    "preferredquality": "192",
+                }
+            ],
+            "outtmpl": os.path.join(output_folder, "%(title)s.%(ext)s"),
+            "progress_hooks": [progress_hook],
+            "noplaylist": True,
+            "quiet": True,
+            "no_warnings": True,
+            # Improve compatibility to avoid 403 errors
+            "nocheckcertificate": True,
+            "ignoreerrors": False,
+            "logtostderr": False,
+            "quiet": True,
+            "no_warnings": True,
+            "default_search": "auto",
+            "source_address": "0.0.0.0",  # force IPv4
+            # Use specific clients to bypass bot detection without needing local cookies
+            "extractor_args": {
+                "youtube": {
+                    "player_client": ["android", "ios"],
+                }
+            },
+        }
+
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(youtube_url, download=True)
+                filename = ydl.prepare_filename(info)
+                final_path = os.path.splitext(filename)[0] + ".mp3"
+                return final_path
+        except Exception as e:
+            raise RuntimeError(f"Download failed: {str(e)}")
